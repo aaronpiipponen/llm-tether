@@ -1,0 +1,78 @@
+# Worker launcher configuration example.
+#
+# Copy this file to config.toml and edit it:
+#
+#     cp config.toml.example config.toml
+#
+# config.toml is intentionally untracked; it holds your machine's connection details and model
+# catalog. The launcher is strict: a missing, mistyped, or inconsistent value is reported and the
+# command stops, so a typo is never silently ignored. Every key shown outside a commented block is
+# required, and at least one active [[models]] table is required before any command will run.
+
+[connection]
+# The SSH host that reaches your Windows worker. This must resolve from your shell; an entry in
+# ~/.ssh/config works well.
+ssh_target = "<worker-ssh-host>"
+# The WSL distribution on that host that owns the llama.cpp builds and the GGUF files.
+wsl_distro = "<wsl-distro>"
+# Absolute path, inside the WSL distribution, of the checkout that holds models/ and the runtime
+# builds. Each model's `artifact` is resolved relative to this directory.
+worker_root = "/path/to/worker/checkout"
+# Seconds to wait for an SSH connection.
+connect_timeout = 10
+# Seconds to wait for a single remote command.
+command_timeout = 120
+# Seconds to wait for a freshly started llama-server to report healthy.
+health_timeout = 300
+
+# Subagent templates exposed by `create-subagent`. `file` is relative to templates/. Each template
+# must carry its own frontmatter description and contain the {{LLM_TETHER_MODEL}} placeholder.
+# Only templates you publish are available after a fresh clone; the bundled example is enough to
+# start. Add one [[subagents]] table per template.
+[[subagents]]
+name = "example-reviewer"
+file = "example-reviewer.md"
+
+# Model catalog. Add one [[models]] table per model. The loader will not start until at least one
+# is uncommented and filled in. Field reference:
+#
+#   key                   unique id used on the command line and stored in state
+#   display               human-readable name shown by OpenCode
+#   alias                 model id llama-server exposes and subagent files reference
+#   slug                  short unique label embedded in stamped subagent file names
+#   artifact              path to the .gguf, relative to worker_root
+#   runtime_revision      commit of the pinned llama.cpp build under ~/.local/src/llama.cpp-<rev>
+#   port_base             first port tried for this model; later instances take the next free one
+#   context_sizes         allowed --ctx-size values offered interactively
+#   default_context       one of context_sizes
+#   reasoning_levels      allowed reasoning levels; use ["off"] for a non-reasoning model
+#   default_reasoning     one of reasoning_levels
+#   supports_reasoning    true to pass the llama.cpp --reasoning flags
+#   tool_call             whether OpenCode should advertise tool calling for this model
+#   output_tokens         OpenCode output limit
+#   weight_mib            planning estimate of the weights' VRAM footprint
+#   kv_mib_per_1k_context planning estimate of KV-cache growth per 1000 tokens of context
+#   fixed_kv_mib          planning estimate of fixed KV-cache overhead
+#   compute_mib           planning estimate of compute-buffer overhead
+#   extra_args            optional extra llama-server arguments (omit for none)
+#
+# [[models]]
+# key = "<model-key>"
+# display = "<Human readable name>"
+# alias = "<served-model-alias>"
+# slug = "<short-label>"
+# artifact = "models/<name>-<rev>/<file>.gguf"
+# runtime_revision = "<llama.cpp-commit>"
+# port_base = 18000
+# context_sizes = [16384, 32768]
+# default_context = 16384
+# reasoning_levels = ["off", "minimal", "low", "medium", "high"]
+# default_reasoning = "off"
+# supports_reasoning = true
+# tool_call = true
+# output_tokens = 4096
+# weight_mib = 6000.0
+# kv_mib_per_1k_context = 50.0
+# fixed_kv_mib = 0.0
+# compute_mib = 200.0
+# extra_args = ["--fit", "off"]

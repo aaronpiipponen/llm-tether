@@ -1,0 +1,15 @@
+# Never publish a real config, private planning notes, or private subagent templates.
+config.toml
+templates/*.md
+!templates/example-reviewer.md
+
+# Python.
+__pycache__/
+*.py[cod]
+.venv/
+.ruff_cache/
+
+# Local runtime state, logs, and interrupted stamp temp files.
+state.json
+*.keeper.log
+*.tmp
