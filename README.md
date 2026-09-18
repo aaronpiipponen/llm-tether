@@ -124,7 +124,7 @@ Key behaviors:
 
 - A `start` launches the model detached, forwards its port through a detached SSH keeper, and
   returns immediately. The tool is not a long-running process.
-- Severals instances, including several copies of the same model, can run at once. Each has its
+- Several instances, including several copies of the same model, can run at once. Each has its
   own port, keeper, provider entry, and stamped subagents.
 - `stop` removes that instance's provider entry and stamped subagents. Only when the last instance
   stops does it terminate the WSL distribution, releasing the multi-GB model page cache the VM
