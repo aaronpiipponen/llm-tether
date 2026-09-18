@@ -7,14 +7,11 @@ models on a private Windows/WSL2 GPU worker and exposing them to a local
 `llm-tether` starts a `llama-server` on the worker over SSH, forwards its loopback port to this
 machine through a detached SSH keeper, and adds one OpenCode provider entry per running instance.
 It also stamps read-only subagent templates into the global OpenCode agents directory. Everything
-it needs is described by one `config.toml`; there is no other external state.
-
-It is deliberately stdlib-only and self-contained: it does not import, and does not depend on, any
-other project. Run it from anywhere; it never reads a file relative to the current directory.
+it needs is described by one `config.toml`.
 
 ## Requirements
 
-- Python 3.14 or newer (the code uses `tomllib` and modern `except` syntax).
+- Python 3.14 or newer.
 - An SSH-reachable Windows host with a WSL2 distribution.
 - Pinned `llama.cpp` builds on the worker, one directory per revision:
   `~/.local/src/llama.cpp-<runtime_revision>/build/bin/llama-server`.
@@ -25,14 +22,14 @@ other project. Run it from anywhere; it never reads a file relative to the curre
 ## Install
 
 Copy the tool directory somewhere on your machine, for example `~/projects/tools/llm-tether/`. There is
-nothing to build and no package to install; run it directly:
+nothing to build and no package to install, just run it directly:
 
 ```sh
 python3 ~/projects/tools/llm-tether
 ```
 
 Running a directory executes its `__main__.py`. A bare invocation opens the interactive menu. An
-action can also be passed as a flag for scripting; both paths call the same functions.
+action can also be passed as a flag for scripting, both paths call the same functions.
 
 ## Configure
 
@@ -41,12 +38,12 @@ cp config.toml.example config.toml
 $EDITOR config.toml
 ```
 
-`config.toml` is the single source for the connection, the model catalog, and the exposed subagent
+`config.toml` is the source for the connection, the model catalog, and the exposed subagent
 manifest. The example documents every field inline. The loader is strict: a missing file, unknown
 key, wrong type, or inconsistent value stops the command with a clear message. You must add at
 least one active `[[models]]` table before any command will run.
 
-All paths are configured, never hardcoded. To keep a config outside the tool directory, point
+To keep a config outside the tool directory, point
 `LLM_TETHER_CONFIG` at it:
 
 ```sh
@@ -117,7 +114,7 @@ python3 ~/projects/tools/llm-tether stop --model <model-key> --instance 1
 python3 ~/projects/tools/llm-tether stop --all
 ```
 
-Run `python3 ~/projects/tools/llm-tether --help` for the full flag list; the module docstrings in
+Run `python3 ~/projects/tools/llm-tether --help` for the full flag list, the module docstrings in
 `cli.py`, `lifecycle.py`, and `reconcile.py` describe the actions in more detail.
 
 Key behaviors:
@@ -159,8 +156,8 @@ for the plugin and warns when it is absent.
 
 ## Troubleshooting
 
-- `python3 ~/projects/tools/llm-tether doctor` cross-checks the config, templates, OpenCode config, agents
-  directory, recorded state, health endpoints, and the reload plugin. Add `--json` for scripting.
+- `python3 ~/projects/tools/llm-tether doctor` cross-checks the config, templates, OpenCode config, 
+  agents directory, recorded state, health endpoints, and the reload plugin. Add `--json` for scripting.
 - A failed `start` leaves no session. Use `logs --model <key> --instance <n>` to read the remote
   `llama-server` log; it addresses the file directly, so no state entry is needed.
 - `reconcile` re-adds providers for running instances that lost their config entry, removes
