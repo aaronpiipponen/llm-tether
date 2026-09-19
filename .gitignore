@@ -1,5 +1,6 @@
 # Never publish a real config, private planning notes, or private subagent templates.
 config.toml
+BENCHMARKS.md
 templates/*.md
 !templates/example-reviewer.md
 
