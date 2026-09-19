@@ -89,6 +89,11 @@ def launch_script(
     an effort level is passed to ``--reasoning-effort`` with ``--reasoning on``. Models whose
     runtime lacks these flags (older builds) get no reasoning arguments at all; sending them fails
     the launch.
+
+    ``--n-gpu-layers`` is left unset when the model's ``gpu_layers`` is ``auto``, so llama.cpp's
+    ``--fit`` can choose how many layers fit the requested context in the worker's free VRAM
+    instead of committing every layer and spilling into shared memory. An explicit ``all`` or
+    layer count is passed through verbatim.
     """
     runtime = f"$HOME/.local/src/llama.cpp-{model.runtime_revision}/build/bin/llama-server"
     name = f"{model.key}-{instance}"
@@ -114,8 +119,10 @@ def launch_script(
         str(context),
         "--parallel",
         "1",
-        "--n-gpu-layers",
-        "all",
+    ]
+    if model.gpu_layers != "auto":
+        args += ["--n-gpu-layers", model.gpu_layers]
+    args += [
         "--jinja",
         "--offline",
         "--no-webui",
@@ -273,8 +280,18 @@ def start_model(connection: Connection, model: ModelSpec, context: int, reasonin
         )
         wait_healthy(connection, model, instance, port)
     except BaseException:
+        try:
+            transport.run_remote(connection, stop_script(model, instance))
+        except BaseException as cleanup_error:
+            print(
+                f"  warning: could not stop {model.key}-{instance} after a failed start: "
+                f"{cleanup_error}",
+                flush=True,
+            )
         state.stop_pid(keeper_pid, connection.connect_timeout)
         remove_provider(provider)
+        if not state.active_sessions():
+            transport.terminate_wsl(connection)
         raise
 
     sessions.append(

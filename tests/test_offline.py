@@ -197,6 +197,14 @@ class OfflineCliTests(unittest.TestCase):
         result = self.ws.run("start", "--count", "0", "--model", MODEL_SMALL)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_invalid_gpu_layers_is_rejected(self) -> None:
+        text = self.ws.config.read_text(encoding="utf-8")
+        text = text.replace('key = "small"', 'key = "small"\ngpu_layers = "banana"')
+        self.ws.config.write_text(text, encoding="utf-8")
+        result = self.ws.run("doctor", "--json")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gpu_layers", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

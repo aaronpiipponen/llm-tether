@@ -50,9 +50,10 @@ _MODEL_KEYS = {
     "kv_mib_per_1k_context",
     "fixed_kv_mib",
     "compute_mib",
+    "gpu_layers",
     "extra_args",
 }
-_MODEL_REQUIRED = _MODEL_KEYS - {"extra_args"}
+_MODEL_REQUIRED = _MODEL_KEYS - {"extra_args", "gpu_layers"}
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class ModelSpec:
     kv_mib_per_1k_context: float
     fixed_kv_mib: float
     compute_mib: float
+    gpu_layers: str = "auto"
     extra_args: tuple[str, ...] = ()
 
 
@@ -153,6 +155,24 @@ def _bool(table: dict[str, object], key: str, where: str) -> bool:
     if not isinstance(value, bool):
         raise SystemExit(f"{where}.{key} must be a boolean")
     return value
+
+
+def _gpu_layers(table: dict[str, object], where: str) -> str:
+    """Return the normalized ``--n-gpu-layers`` value: ``auto``, ``all``, or a count.
+
+    ``auto`` (the default when the key is omitted) is returned as-is so the launcher can leave the
+    flag unset and let llama.cpp fit the offload to the worker's free VRAM.
+    """
+    value = table.get("gpu_layers", "auto")
+    if isinstance(value, bool):
+        raise SystemExit(f"{where}.gpu_layers must be 'auto', 'all', or a non-negative integer")
+    if isinstance(value, int):
+        if value < 0:
+            raise SystemExit(f"{where}.gpu_layers must be 'auto', 'all', or a non-negative integer")
+        return str(value)
+    if isinstance(value, str) and value in {"auto", "all"}:
+        return value
+    raise SystemExit(f"{where}.gpu_layers must be 'auto', 'all', or a non-negative integer")
 
 
 def _str_list(table: dict[str, object], key: str, where: str) -> tuple[str, ...]:
@@ -240,6 +260,7 @@ def _parse_model(table: object, index: int) -> ModelSpec:
         kv_mib_per_1k_context=_float(entry, "kv_mib_per_1k_context", where),
         fixed_kv_mib=_float(entry, "fixed_kv_mib", where),
         compute_mib=_float(entry, "compute_mib", where),
+        gpu_layers=_gpu_layers(entry, where),
         extra_args=extra_args,
     )
     if model.default_context not in model.context_sizes:

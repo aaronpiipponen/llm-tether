@@ -117,6 +117,7 @@ weight_mib = 200.0
 kv_mib_per_1k_context = 2.0
 fixed_kv_mib = 0.0
 compute_mib = 20.0
+gpu_layers = 8
 """
 
 

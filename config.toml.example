@@ -54,7 +54,12 @@ file = "example-reviewer.md"
 #   kv_mib_per_1k_context planning estimate of KV-cache growth per 1000 tokens of context
 #   fixed_kv_mib          planning estimate of fixed KV-cache overhead
 #   compute_mib           planning estimate of compute-buffer overhead
-#   extra_args            optional extra llama-server arguments (omit for none)
+#   gpu_layers            optional; 'auto' leaves --n-gpu-layers unset so --fit sizes the offload
+#                         to free VRAM, 'all' forces every layer onto the GPU, or give a count.
+#                         Defaults to 'auto'. Use 'auto' unless the whole model provably fits,
+#                         because 'all' with a context that does not fit spills to system memory.
+#   extra_args            optional extra llama-server arguments (omit for none). Leave --fit at its
+#                         default 'on' when gpu_layers is 'auto' so the offload can be reduced.
 #
 # [[models]]
 # key = "<model-key>"
@@ -75,4 +80,5 @@ file = "example-reviewer.md"
 # kv_mib_per_1k_context = 50.0
 # fixed_kv_mib = 0.0
 # compute_mib = 200.0
-# extra_args = ["--fit", "off"]
+# gpu_layers = "auto"
+# extra_args = ["--no-mmproj"]

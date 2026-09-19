@@ -7,6 +7,8 @@ monkeypatch ``transport.run_remote`` so no SSH is attempted.
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import importlib
 import io
 import os
 import subprocess
@@ -43,6 +45,67 @@ class InProcessTests(unittest.TestCase):
         with redirect_stdout(out):
             func(*args)
         return out.getvalue()
+
+    def _submodule(self, suffix: str):
+        package = self.cli.__name__.rsplit(".", 1)[0]
+        return importlib.import_module(f"{package}.{suffix}")
+
+    def _model(self, key: str):
+        return self._submodule("catalog").model_by_key(key)
+
+    def test_launch_script_omits_ngl_when_auto(self) -> None:
+        lifecycle = self._submodule("lifecycle")
+        model = self._model(MODEL_SMALL)
+        script = lifecycle.launch_script(self.connection, model, 1, 19100, 1024, "off")
+        self.assertNotIn("--n-gpu-layers", script)
+
+    def test_launch_script_passes_explicit_ngl(self) -> None:
+        lifecycle = self._submodule("lifecycle")
+        model = dataclasses.replace(self._model(MODEL_SMALL), gpu_layers="all")
+        script = lifecycle.launch_script(self.connection, model, 1, 19100, 1024, "off")
+        self.assertIn("--n-gpu-layers all", script)
+
+    def test_config_sees_explicit_gpu_layers(self) -> None:
+        self.assertEqual(self._model(MODEL_LARGE).gpu_layers, "8")
+
+    def test_failed_start_stops_remote_server_and_releases_wsl(self) -> None:
+        lifecycle = self._submodule("lifecycle")
+        model = self._model(MODEL_SMALL)
+        scripts: list[str] = []
+        terminated: list[bool] = []
+
+        def fake_remote(_connection, script):
+            scripts.append(script)
+            return subprocess.CompletedProcess([], 0, stdout=b"", stderr=b"")
+
+        def fail_healthy(*_args, **_kwargs):
+            raise SystemExit("never healthy")
+
+        for name, value in (
+            ("warn_if_vram_short", lifecycle.warn_if_vram_short),
+            ("add_provider", lifecycle.add_provider),
+            ("remove_provider", lifecycle.remove_provider),
+            ("wait_healthy", lifecycle.wait_healthy),
+        ):
+            self.addCleanup(setattr, lifecycle, name, value)
+        self.addCleanup(setattr, self.transport, "start_keeper", self.transport.start_keeper)
+        self.addCleanup(setattr, self.transport, "terminate_wsl", self.transport.terminate_wsl)
+
+        lifecycle.warn_if_vram_short = lambda *_args, **_kwargs: None
+        lifecycle.add_provider = lambda *_args, **_kwargs: f"local-{MODEL_SMALL}"
+        lifecycle.remove_provider = lambda _provider: None
+        lifecycle.wait_healthy = fail_healthy
+        self.transport.run_remote = fake_remote
+        self.transport.start_keeper = lambda *_args, **_kwargs: 999999
+        self.transport.terminate_wsl = lambda *_args, **_kwargs: terminated.append(True)
+
+        with self.assertRaises(SystemExit):
+            lifecycle.start_model(self.connection, model, 1024, "off")
+
+        self.assertTrue(
+            any("kill" in script and f"{MODEL_SMALL}-1.pid" in script for script in scripts)
+        )
+        self.assertEqual(terminated, [True])
 
     def test_logs_prints_remote_and_keeper(self) -> None:
         self.state.STATE_DIR.mkdir(parents=True, exist_ok=True)
