@@ -68,6 +68,31 @@ class InProcessTests(unittest.TestCase):
     def test_config_sees_explicit_gpu_layers(self) -> None:
         self.assertEqual(self._model(MODEL_LARGE).gpu_layers, "8")
 
+    def test_provider_entry_uses_native_v2_schema(self) -> None:
+        opencode = self._submodule("opencode")
+        model = dataclasses.replace(self._model(MODEL_SMALL), supports_reasoning=True)
+        entry = opencode.opencode_entry(model, 1, 19100, 4096, "off")
+        self.assertEqual(entry["package"], "aisdk:@ai-sdk/openai-compatible")
+        self.assertEqual(entry["settings"]["baseURL"], "http://127.0.0.1:19100/v1")
+        self.assertNotIn("npm", entry)
+        self.assertNotIn("options", entry)
+        spec = entry["models"][model.alias]
+        self.assertEqual(spec["capabilities"]["tools"], model.tool_call)
+        self.assertEqual(spec["limit"]["context"], 4096)
+        self.assertEqual(spec["settings"], {"reasoningEffort": "none"})
+
+    def test_add_and_remove_provider_use_providers_key(self) -> None:
+        opencode = self._submodule("opencode")
+        self.ws.write_opencode({"providers": {"nvidia": {}}})
+        with redirect_stdout(io.StringIO()):
+            provider = opencode.add_provider(self._model(MODEL_SMALL), 1, 19100, 1024, "off")
+        document = self.ws.read_opencode()
+        self.assertNotIn("provider", document)
+        self.assertEqual(set(document["providers"]), {"nvidia", provider})
+        with redirect_stdout(io.StringIO()):
+            opencode.remove_provider(provider)
+        self.assertEqual(set(self.ws.read_opencode()["providers"]), {"nvidia"})
+
     def test_failed_start_stops_remote_server_and_releases_wsl(self) -> None:
         lifecycle = self._submodule("lifecycle")
         model = self._model(MODEL_SMALL)

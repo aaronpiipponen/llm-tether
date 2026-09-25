@@ -106,9 +106,9 @@ def _check_opencode() -> tuple[list[Check], dict[str, object] | None]:
         document = opencode.load_config()
     except SystemExit as exc:
         return [Check("opencode", "fail", str(exc))], None
-    provider_map = document.get("provider")
+    provider_map = document.get(opencode.PROVIDERS_KEY)
     if not isinstance(provider_map, dict):
-        return [Check("opencode", "fail", "provider section is not an object")], None
+        return [Check("opencode", "fail", "providers section is not an object")], None
     return [Check("opencode", "ok", f"{len(provider_map)} provider(s)")], provider_map
 
 

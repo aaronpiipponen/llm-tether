@@ -39,9 +39,9 @@ def _readd_provider(session: dict[str, object]) -> None:
 
 def _local_providers(document: dict[str, object]) -> dict[str, object]:
     """Return the provider map, failing loudly if the OpenCode config is malformed."""
-    provider_map = document.get("provider")
+    provider_map = document.get(opencode.PROVIDERS_KEY)
     if not isinstance(provider_map, dict):
-        raise SystemExit("OpenCode config provider section is not an object")
+        raise SystemExit("OpenCode config providers section is not an object")
     return provider_map
 
 

@@ -133,7 +133,7 @@ class Workspace:
         self.config = self.root / "config.toml"
         self.config.write_text(CONFIG_TOML, encoding="utf-8")
         self.opencode = self.root / "opencode.json"
-        self.write_opencode({"provider": {"nvidia": {}}})
+        self.write_opencode({"providers": {"nvidia": {}}})
         self.env = dict(os.environ)
         self.env.update(
             {

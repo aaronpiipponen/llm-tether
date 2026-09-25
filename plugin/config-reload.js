@@ -1,54 +1,43 @@
-// config-reload — opencode plugin
+// config-reload — OpenCode v2 plugin
 //
-// Live-reloads global config and agent/mode files without restarting opencode:
-// provider entries added/removed by scripts, and subagent files added, edited,
-// or deleted, all take effect on the next request.
+// Live-reloads the global config and agent/mode files without restarting OpenCode:
+// provider entries added/removed by scripts, and subagent files added, edited, or
+// deleted, all take effect on the next request.
 //
-// Why a plugin is needed: the global config is cached for the process lifetime
-// (`Config.getGlobal` uses `Effect.cachedInvalidateWithTTL` with
-// `Duration.infinity`), and agent/mode files are only rescanned when an instance
-// is (re)created. Nothing watches `~/.config/opencode` on its own.
+// Why a plugin is needed: the OpenCode v2 service reads `opencode.json` once per
+// location and keeps the resolved providers and models until something asks for a
+// reload (`opencode reload`, `/reload` in the TUI). Nothing watches the global config
+// file on its own.
 //
-// Mechanism: on change, call the running server's own HTTP API —
-//   1. `PATCH /global/config` (`Config.updateGlobal`) clears the cached global
-//      config and disposes all instances, so provider entries are re-read.
-//   2. `POST /global/dispose` forces instance teardown so agent/mode directories
-//      are rescanned the next time an instance is built (covers add/edit/delete).
-// The SDK client handed to the plugin is already bound to this server (base URL
-// and auth headers), so no port discovery or signalling is required. (The TUI's
-// SIGUSR2 handler runs on a runtime that does not clear the HTTP server's
-// provider cache and often fails to recreate instances, so it is not used.)
+// Mechanism: v2 calls `setup(ctx)` once per location (project directory) the service
+// has open, and each ctx carries that location's `provider`, `model`, and `agent`
+// services. On a change, every live ctx runs `provider.reload()` then
+// `model.reload()` (and `agent.reload()` for agent/mode files), which re-reads the
+// config and rebuilds the model list in place — no HTTP round trip or port discovery.
 //
-// Watchers are registered once per process and kept, updating the bound client on
-// re-instantiation; closing and re-registering them per instance (the previous
-// approach) raced with the very reload they triggered and silently dropped
-// events. Scripts write files atomically (`foo.md.tmp` -> `foo.md`), so the
+// Watchers are registered once per process and shared; each setup adds its ctx to
+// the live set and the returned finalizer removes it when the location is disposed.
+// Closing and re-registering watchers per location would race with the very reload
+// they trigger. Scripts write files atomically (`foo.md.tmp` -> `foo.md`), so the
 // accept filters also admit the `.tmp` temp name, otherwise the only event a
 // directory watcher sees can be the temp rename and the change is missed.
 //
-// Placement: a top-level file in ~/.config/opencode/plugins/ is auto-loaded.
+// Placement: a top-level file in ~/.config/opencode/plugins/ is auto-loaded by both
+// the service and the TUI; only the service instance does anything (see below).
 
-import { existsSync, readFileSync, watch } from "node:fs"
+import { existsSync, watch } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
 const CONFIG_NAMES = new Set(["opencode.json", "opencode.jsonc", "config.json"])
 const AGENT_DIRS = ["agent", "agents"]
 const MODE_DIRS = ["mode", "modes"]
-const STATE = Symbol.for("opencode.config-reload.state")
+const STATE = Symbol.for("opencode.config-reload.v2.state")
 const DEBOUNCE_MS = 500
 
 function configDir() {
   if (process.env.XDG_CONFIG_HOME) return path.join(process.env.XDG_CONFIG_HOME, "opencode")
   return path.join(os.homedir(), ".config", "opencode")
-}
-
-function configFile(dir) {
-  for (const name of ["opencode.jsonc", "opencode.json", "config.json"]) {
-    const file = path.join(dir, name)
-    if (existsSync(file)) return file
-  }
-  return undefined
 }
 
 function isConfigEvent(name) {
@@ -61,23 +50,23 @@ function isMarkdownEvent(name) {
   return name.endsWith(".md") || name.endsWith(".tmp")
 }
 
-export const ConfigReload = async ({ client }) => {
-  const existing = globalThis[STATE]
-  if (existing) {
-    // Re-instantiation: keep the watchers, rebind to the newest client.
-    existing.client = client
-    return {}
-  }
-
+function createState() {
   const state = {
-    client,
-    dir: configDir(),
+    contexts: new Set(),
     watchers: [],
     timer: null,
+    pending: { config: false, agents: false },
     running: false,
     queued: false,
   }
-  globalThis[STATE] = state
+
+  const reloadOne = async (ctx, work) => {
+    if (work.config) {
+      await ctx.provider.reload()
+      await ctx.model.reload()
+    }
+    if (work.agents) await ctx.agent.reload()
+  }
 
   const apply = async () => {
     if (state.running) {
@@ -85,27 +74,16 @@ export const ConfigReload = async ({ client }) => {
       return
     }
     state.running = true
+    const work = state.pending
+    state.pending = { config: false, agents: false }
     try {
-      const file = configFile(state.dir)
-      if (file) {
-        let body
+      for (const ctx of [...state.contexts]) {
         try {
-          body = JSON.parse(readFileSync(file, "utf8"))
-        } catch {
-          body = undefined
-        }
-        if (body !== undefined) {
-          await state.client._client.patch({
-            url: "/global/config",
-            body,
-            headers: { "Content-Type": "application/json" },
-            throwOnError: false,
-          })
+          await reloadOne(ctx, work)
+        } catch (error) {
+          console.error(`config-reload: reload failed for ${ctx.location?.directory}`, error)
         }
       }
-      await state.client._client.post({ url: "/global/dispose", throwOnError: false })
-    } catch (error) {
-      console.error("config-reload: reload failed", error)
     } finally {
       state.running = false
       if (state.queued) {
@@ -115,7 +93,8 @@ export const ConfigReload = async ({ client }) => {
     }
   }
 
-  const schedule = () => {
+  const schedule = (kind) => {
+    state.pending[kind] = true
     if (state.timer) clearTimeout(state.timer)
     state.timer = setTimeout(() => {
       state.timer = null
@@ -123,13 +102,13 @@ export const ConfigReload = async ({ client }) => {
     }, DEBOUNCE_MS)
   }
 
-  const watchDir = (target, accept) => {
+  const watchDir = (target, accept, kind) => {
     if (!existsSync(target)) return
     try {
       const watcher = watch(target, (_event, filename) => {
         const name = filename ? String(filename) : ""
         if (name && !accept(name)) return
-        schedule()
+        schedule(kind)
       })
       watcher.unref?.()
       state.watchers.push(watcher)
@@ -138,12 +117,34 @@ export const ConfigReload = async ({ client }) => {
     }
   }
 
-  watchDir(state.dir, isConfigEvent)
+  const dir = configDir()
+  watchDir(dir, isConfigEvent, "config")
   for (const sub of [...AGENT_DIRS, ...MODE_DIRS]) {
-    watchDir(path.join(state.dir, sub), isMarkdownEvent)
+    watchDir(path.join(dir, sub), isMarkdownEvent, "agents")
   }
-
-  return {}
+  return state
 }
 
-export default ConfigReload
+// The TUI also loads top-level files from plugins/ and calls `setup` with its own
+// context, which has no `provider`/`model`/`agent` services. Only the server host can
+// reload, and the TUI reads providers from the server anyway, so do nothing there —
+// no watchers, and no console output painting over the TUI.
+function isServerHost(ctx) {
+  return (
+    typeof ctx?.provider?.reload === "function" &&
+    typeof ctx?.model?.reload === "function" &&
+    typeof ctx?.agent?.reload === "function"
+  )
+}
+
+export default {
+  id: "config-reload",
+  setup: async (ctx) => {
+    if (!isServerHost(ctx)) return
+    const state = (globalThis[STATE] ??= createState())
+    state.contexts.add(ctx)
+    return () => {
+      state.contexts.delete(ctx)
+    }
+  },
+}

@@ -1,7 +1,8 @@
-"""OpenCode config: one provider entry per running instance, added on start and removed on stop.
+"""OpenCode v2 config: one provider entry per running instance, added on start and removed on stop.
 
 The global config is the file OpenCode itself reads; the config-reload plugin watches it and
-pushes the change to a running OpenCode, so this tool only writes files.
+reloads providers in the running OpenCode service, so this tool only writes files. Entries use
+the native v2 schema under ``providers`` (``package``/``settings``/``capabilities``).
 """
 
 from __future__ import annotations
@@ -12,6 +13,9 @@ from pathlib import Path
 
 from .catalog import ModelSpec, provider_for
 from .identity import ENV_PREFIX
+
+# Top-level OpenCode v2 config key that holds provider entries.
+PROVIDERS_KEY = "providers"
 
 # OpenCode config that owns the provider entries for these worker instances. `start` adds one
 # provider entry per instance and `stop` removes it. Override with the *_OPENCODE_CONFIG env var.
@@ -44,9 +48,9 @@ def load_config() -> dict[str, object]:
         raise SystemExit(
             f"OpenCode config is not plain UTF-8 JSON (comments unsupported): {OPENCODE_CONFIG}"
         ) from exc
-    providers = document.setdefault("provider", {})
+    providers = document.setdefault(PROVIDERS_KEY, {})
     if not isinstance(providers, dict):
-        raise SystemExit("OpenCode config provider section is not an object")
+        raise SystemExit("OpenCode config providers section is not an object")
     return document
 
 
@@ -61,19 +65,18 @@ def write_config(document: dict[str, object]) -> None:
 def opencode_entry(
     model: ModelSpec, instance: int, port: int, context: int, reasoning: str
 ) -> dict[str, object]:
-    """Build the OpenCode provider entry for one running instance."""
+    """Build the OpenCode v2 provider entry for one running instance."""
     entry: dict[str, object] = {
         "name": model.display,
-        "tool_call": model.tool_call,
+        "capabilities": {"tools": model.tool_call, "input": ["text"], "output": ["text"]},
         "limit": {"context": context, "output": model.output_tokens},
     }
     if model.supports_reasoning:
-        entry["reasoning"] = reasoning != "off"
-        entry["options"] = {"reasoningEffort": "none" if reasoning == "off" else reasoning}
+        entry["settings"] = {"reasoningEffort": "none" if reasoning == "off" else reasoning}
     return {
-        "npm": "@ai-sdk/openai-compatible",
         "name": f"Local worker {model.key} #{instance}",
-        "options": {
+        "package": "aisdk:@ai-sdk/openai-compatible",
+        "settings": {
             "baseURL": f"http://127.0.0.1:{port}/v1",
             "apiKey": "dummy",
         },
@@ -85,7 +88,7 @@ def add_provider(model: ModelSpec, instance: int, port: int, context: int, reaso
     """Add one instance's provider entry to the OpenCode config and return its provider id."""
     provider = provider_for(model, instance)
     document = load_config()
-    provider_map = document["provider"]
+    provider_map = document[PROVIDERS_KEY]
     assert isinstance(provider_map, dict)
     provider_map[provider] = opencode_entry(model, instance, port, context, reasoning)
     write_config(document)
@@ -96,7 +99,7 @@ def add_provider(model: ModelSpec, instance: int, port: int, context: int, reaso
 def remove_provider(provider: str) -> None:
     """Remove one instance's provider entry from the OpenCode config if it is present."""
     document = load_config()
-    provider_map = document["provider"]
+    provider_map = document[PROVIDERS_KEY]
     assert isinstance(provider_map, dict)
     if provider in provider_map:
         del provider_map[provider]

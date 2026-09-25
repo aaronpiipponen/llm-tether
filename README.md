@@ -135,16 +135,18 @@ Key behaviors:
 
 ## Live reload
 
-Editing `opencode.json` or the agents directory only takes effect the next time OpenCode reads
-them. To make changes appear in a running OpenCode, install the bundled plugin:
+This targets OpenCode v2: provider entries are written in the native v2 schema under
+`providers` in `opencode.json`. The v2 service rereads that file only on `opencode reload` (or
+`/reload` in the TUI). To make changes appear in a running OpenCode automatically, install the
+bundled v2 plugin:
 
 ```sh
 cp plugin/config-reload.js ~/.config/opencode/plugins/config-reload.js
 ```
 
-It watches the global config and the `agents`/`modes` directories and asks the running server to
-reload. Without it, restart OpenCode after `start`, `stop`, or `create-subagent`. `doctor` checks
-for the plugin and warns when it is absent.
+It watches the global config and the `agents`/`modes` directories and reloads providers, models,
+and agents in every location the service has open. Without it, run `opencode reload` after
+`start`, `stop`, or `create-subagent`. `doctor` checks for the plugin and warns when it is absent.
 
 ## State and logs
 

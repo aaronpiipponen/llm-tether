@@ -79,7 +79,7 @@ class OfflineCliTests(unittest.TestCase):
         orphan = self.ws.agents / f"example-reviewer-{MODEL_LARGE}-1.md"
         orphan.write_text("stub", encoding="utf-8")
         self.ws.write_opencode(
-            {"provider": {"nvidia": {}, f"local-{MODEL_SMALL}": {}, "local-ghost": {}}}
+            {"providers": {"nvidia": {}, f"local-{MODEL_SMALL}": {}, "local-ghost": {}}}
         )
         self.ws.write_state([session(f"local-{MODEL_SMALL}", MODEL_SMALL, 1, [str(stamp)])])
         result = self.ws.run("doctor", "--json")
@@ -160,21 +160,21 @@ class OfflineCliTests(unittest.TestCase):
         # would shell out over SSH); this test stays local.
         self.ws.write_state([session(f"local-{MODEL_SMALL}", MODEL_SMALL, 1, [])])
         self.ws.write_opencode(
-            {"provider": {"nvidia": {}, f"local-{MODEL_SMALL}": {}, "local-ghost": {}}}
+            {"providers": {"nvidia": {}, f"local-{MODEL_SMALL}": {}, "local-ghost": {}}}
         )
         result = self.ws.run("reconcile")
         self.assertIn("remove provider local-ghost", result.stdout)
         self.assertIn("dry-run", result.stdout)
-        self.assertIn("local-ghost", self.ws.read_opencode()["provider"])
+        self.assertIn("local-ghost", self.ws.read_opencode()["providers"])
 
         result = self.ws.run("reconcile", "--execute")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("local-ghost", self.ws.read_opencode()["provider"])
+        self.assertNotIn("local-ghost", self.ws.read_opencode()["providers"])
 
     def test_reconcile_restores_missing_stamp(self) -> None:
         stamp = self.ws.agents / f"example-reviewer-{MODEL_SMALL}-1.md"
         self.assertFalse(stamp.exists())
-        self.ws.write_opencode({"provider": {"nvidia": {}, f"local-{MODEL_SMALL}": {}}})
+        self.ws.write_opencode({"providers": {"nvidia": {}, f"local-{MODEL_SMALL}": {}}})
         self.ws.write_state([session(f"local-{MODEL_SMALL}", MODEL_SMALL, 1, [str(stamp)])])
         result = self.ws.run("reconcile", "--execute")
         self.assertEqual(result.returncode, 0, result.stderr)
