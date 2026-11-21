@@ -2,8 +2,8 @@
 
 ``doctor`` cross-checks everything that has to line up for a provider or a stamped subagent to
 be usable: the worker config, the subagent templates, the OpenCode config, the recorded state,
-the forwarding health endpoints, and the live-reload plugin. Nothing in this module writes,
-deletes, or starts remote work.
+the forwarding health endpoints, and whether a live-reload plugin is registered. Nothing in this
+module writes, deletes, or starts remote work.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from .catalog import ModelSpec, SubagentSpec, provider_for
 from .lifecycle import health_probe, stale_keeper_logs
 from .opencode import OPENCODE_AGENTS_DIR, OPENCODE_CONFIG
 
-RELOAD_PLUGIN_NAME = "config-reload.js"
+# Plugin entries (a directory or a file) that provide live reload of the OpenCode config.
+RELOAD_PLUGIN_NAMES = {"config-reload", "config-reload.js", "opencode-config-reload"}
 
 
 @dataclass(frozen=True)
@@ -168,21 +169,25 @@ def _check_orphans() -> list[Check]:
     return checks
 
 
-def _plugin_path() -> Path | None:
-    """Return the installed live-reload plugin path, or None when it is absent."""
-    parent = OPENCODE_CONFIG.parent
-    for candidate in (
-        parent / "plugin" / RELOAD_PLUGIN_NAME,
-        parent / "plugins" / RELOAD_PLUGIN_NAME,
-    ):
-        if candidate.is_file():
-            return candidate
+def _reload_plugin() -> str | None:
+    """Return the plugin entry that provides live reload, or None when none is registered."""
+    try:
+        document = opencode.load_config()
+    except SystemExit:
+        return None
+    plugins = document.get("plugins", [])
+    if not isinstance(plugins, list):
+        return None
+    for item in plugins:
+        value = item.get("package") if isinstance(item, dict) else item
+        if isinstance(value, str) and Path(value).name in RELOAD_PLUGIN_NAMES:
+            return value
     return None
 
 
 def resolved_paths() -> dict[str, str]:
     """Return the resolved config/state/opencode/agents/plugin paths currently in effect."""
-    plugin = _plugin_path()
+    plugin = _reload_plugin()
     return {
         "config": str(config.CONFIG_PATH),
         "state": str(state.STATE_DIR),
@@ -204,14 +209,15 @@ def where_command(as_json: bool = False) -> int:
 
 
 def _check_plugin() -> list[Check]:
-    plugin = _plugin_path()
+    plugin = _reload_plugin()
     if plugin is not None:
-        return [Check("reload plugin", "ok", str(plugin))]
+        return [Check("reload plugin", "ok", plugin)]
     return [
         Check(
             "reload plugin",
             "warn",
-            f"{RELOAD_PLUGIN_NAME} not found; a running OpenCode needs a restart to see changes",
+            "no live-reload plugin is registered; "
+            "a running OpenCode needs `opencode reload` to see changes",
         )
     ]
 

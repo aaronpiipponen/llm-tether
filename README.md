@@ -76,7 +76,7 @@ python3 ~/projects/tools/llm-tether start --model <model-key> --count 3
 python3 ~/projects/tools/llm-tether models
 python3 ~/projects/tools/llm-tether models --json
 
-# Show which config, state, OpenCode, agents, and plugin paths are in effect.
+# Show which config, state, OpenCode, agents, and plugin entries are in effect.
 python3 ~/projects/tools/llm-tether where
 
 # Preview a start without touching the worker.
@@ -137,16 +137,9 @@ Key behaviors:
 
 This targets OpenCode v2: provider entries are written in the native v2 schema under
 `providers` in `opencode.json`. The v2 service rereads that file only on `opencode reload` (or
-`/reload` in the TUI). To make changes appear in a running OpenCode automatically, install the
-bundled v2 plugin:
-
-```sh
-cp plugin/config-reload.js ~/.config/opencode/plugins/config-reload.js
-```
-
-It watches the global config and the `agents`/`modes` directories and reloads providers, models,
-and agents in every location the service has open. Without it, run `opencode reload` after
-`start`, `stop`, or `create-subagent`. `doctor` checks for the plugin and warns when it is absent.
+`/reload` in the TUI), so run `opencode reload` after `start`, `stop`, or `create-subagent`. If a
+live-reload plugin is registered, changes appear automatically instead; `doctor` reports whether one
+is registered.
 
 ## State and logs
 
@@ -158,8 +151,9 @@ and agents in every location the service has open. Without it, run `opencode rel
 
 ## Troubleshooting
 
-- `python3 ~/projects/tools/llm-tether doctor` cross-checks the config, templates, OpenCode config, 
-  agents directory, recorded state, health endpoints, and the reload plugin. Add `--json` for scripting.
+- `python3 ~/projects/tools/llm-tether doctor` cross-checks the config, templates, OpenCode config,
+  agents directory, recorded state, health endpoints, and the registered reload plugin. Add `--json`
+  for scripting.
 - A failed `start` leaves no session. Use `logs --model <key> --instance <n>` to read the remote
   `llama-server` log; it addresses the file directly, so no state entry is needed.
 - `reconcile` re-adds providers for running instances that lost their config entry, removes

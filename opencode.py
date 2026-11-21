@@ -1,8 +1,9 @@
 """OpenCode v2 config: one provider entry per running instance, added on start and removed on stop.
 
-The global config is the file OpenCode itself reads; the config-reload plugin watches it and
-reloads providers in the running OpenCode service, so this tool only writes files. Entries use
-the native v2 schema under ``providers`` (``package``/``settings``/``capabilities``).
+The global config is the file OpenCode itself reads; a config-reload plugin, when one is
+registered, watches it and reloads providers in the running OpenCode service, so this tool only
+writes files. Entries use the native v2 schema under ``providers``
+(``package``/``settings``/``capabilities``).
 """
 
 from __future__ import annotations

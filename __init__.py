@@ -37,8 +37,8 @@ and a scout) with a selected live model's provider id and writes it to the globa
 agents directory under a non-colliding name ``<template>-<model slug>-<instance>``. The same
 template can be stamped for several live models, and one live model can hold several stamps.
 Every stamped file is recorded on its instance, and stopping that instance removes all of its
-stamps. OpenCode picks the changes up through the global config-reload plugin; this tool only
-writes files.
+stamps. OpenCode picks the changes up through a config-reload plugin when one is registered,
+otherwise after ``opencode reload``; this tool only writes files.
 """
 
 __all__: tuple[str, ...] = ()
