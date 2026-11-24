@@ -15,7 +15,7 @@
   <rect width="960" height="360" rx="12" fill="#232434"/>
 
   <rect x="32" y="32" width="496" height="296" rx="12" fill="none" stroke="#4a4c6b" stroke-width="1.5"/>
-  <text x="48" y="58" font-size="16" fill="#a3a4b8">Local machine</text>
+  <text x="48" y="58" font-size="16" fill="#a3a4b8">VPS</text>
 
   <rect x="640" y="32" width="288" height="296" rx="12" fill="none" stroke="#4a4c6b" stroke-width="1.5"/>
   <text x="656" y="58" font-size="16" fill="#a3a4b8">Windows/WSL2 GPU worker</text>
