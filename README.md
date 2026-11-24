@@ -1,179 +1,132 @@
-# llm-tether
+<p align="center">
+  <img src="/assets/logo.svg" alt="llm-tether" width="360">
+</p>
 
-A small, standalone operator tool for running [llama.cpp](https://github.com/ggml-org/llama.cpp)
-models on a private Windows/WSL2 GPU worker and exposing them to a local
-[OpenCode](https://opencode.ai) instance.
+<p align="center">
+  Runs llama.cpp models on a Windows PC with a GPU and makes them available to OpenCode on another machine.
+</p>
 
-`llm-tether` starts a `llama-server` on the worker over SSH, forwards its loopback port to this
-machine through a detached SSH keeper, and adds one OpenCode provider entry per running instance.
-It also stamps read-only subagent templates into the global OpenCode agents directory. Everything
-it needs is described by one `config.toml`.
+<p align="center">
+  <a href="/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
 
-## Requirements
+---
 
-- Python 3.14 or newer.
-- An SSH-reachable Windows host with a WSL2 distribution.
-- Pinned `llama.cpp` builds on the worker, one directory per revision:
-  `~/.local/src/llama.cpp-<runtime_revision>/build/bin/llama-server`.
-- GGUF files on the worker, referenced by path relative to the worker checkout root.
-- An AMD GPU; the launcher exports `HSA_ENABLE_DXG_DETECTION=1` before starting `llama-server`.
-- OpenCode, for the provider entries and subagents to be useful.
+**Contents**
 
-## Install
+- [Why it exists](#why-it-exists)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Run your own copy](#run-your-own-copy)
+- [Limits](#limits)
+- [License](#license)
 
-Copy the tool directory somewhere on your machine, for example `~/projects/tools/llm-tether/`. There is
-nothing to build and no package to install, just run it directly:
+## Why it exists
 
-```sh
-python3 ~/projects/tools/llm-tether
-```
+I run OpenCode on a VPS and wanted to experiment with models hosted on my own Windows PC, which has
+an AMD GPU. The VPS cannot reach a model server on that PC directly, and OpenCode only uses a model
+once it is listed as a provider in its config.
 
-Running a directory executes its `__main__.py`. A bare invocation opens the interactive menu. An
-action can also be passed as a flag for scripting, both paths call the same functions.
+This tool does those steps: it starts the model on the PC, connects the two machines over SSH, and
+adds the provider to OpenCode. It is for experiments and is not polished.
 
-## Configure
+## Features
 
-```sh
-cp config.toml.example config.toml
-$EDITOR config.toml
-```
+### Start and stop models from the VPS
 
-`config.toml` is the source for the connection, the model catalog, and the exposed subagent
-manifest. The example documents every field inline. The loader is strict: a missing file, unknown
-key, wrong type, or inconsistent value stops the command with a clear message. You must add at
-least one active `[[models]]` table before any command will run.
+`start` launches a model on the PC and returns once the model answers. The model keeps running after
+the command ends. `stop` shuts the model down and removes its provider entry from OpenCode.
 
-To keep a config outside the tool directory, point
-`LLM_TETHER_CONFIG` at it:
+### Run several models at once
 
-```sh
-LLM_TETHER_CONFIG=~/.config/llm-tether/config.toml python3 ~/projects/tools/llm-tether status
-```
+You can start several copies of one model, or different models side by side. Each one gets its own
+port and its own provider entry in OpenCode.
 
-Every `[connection]` value can also be overridden per invocation with `LLM_TETHER_SSH_TARGET`,
-`LLM_TETHER_WSL_DISTRO`, and `LLM_TETHER_WORKER_ROOT`. The remaining overrides, mostly useful
-for testing, are `LLM_TETHER_STATE_DIR`, `LLM_TETHER_OPENCODE_CONFIG`, and
-`LLM_TETHER_OPENCODE_AGENTS_DIR`.
+### Subagents for a running model
 
-## Usage
+`create-subagent` writes an OpenCode subagent that uses a running model. The subagents come from the
+templates in `templates/`. Stopping the model removes the subagents made for it.
 
-Run the menu:
+### Checking and repairing
 
-```sh
-python3 ~/projects/tools/llm-tether
-```
+`doctor` checks that the config, OpenCode's files, and the running models agree. `reconcile` and
+`clean` fix what `doctor` finds, but they only print what they would change until you add
+`--execute`.
 
-Or pass an action. Common commands:
+## How it works
 
-```sh
-# Start a model; context and reasoning default to interactive selection.
-python3 ~/projects/tools/llm-tether start --model <model-key> --context 32768 --reasoning off
+The tool runs on the VPS, next to OpenCode. It starts `llama-server` on the PC through SSH, and
+`llama-server` listens on a port that only the PC can reach. The tool then starts a background SSH
+tunnel that forwards that port to the VPS, and adds a provider to OpenCode that points at the
+forwarded port.
 
-# Start three copies of it; runs are serial and can take minutes.
-python3 ~/projects/tools/llm-tether start --model <model-key> --count 3
+![llm-tether starts a background SSH tunnel and writes an OpenCode provider entry. OpenCode sends requests to the tunnel's port on the VPS, and the tunnel forwards them to llama-server on the Windows PC.](/assets/diagrams/llm-tether-architecture.svg)
 
-# List the configured model catalog, with context, reasoning, and VRAM estimates.
-python3 ~/projects/tools/llm-tether models
-python3 ~/projects/tools/llm-tether models --json
+The tool does not keep running. It records each running model in
+`~/.local/state/llm-tether/state.json`, and `stop`, `status` and `reconcile` read that file.
 
-# Show which config, state, OpenCode, agents, and plugin entries are in effect.
-python3 ~/projects/tools/llm-tether where
+When the last model stops, the tool shuts down the WSL distribution. Reading a large model file
+leaves it cached in the WSL virtual machine's memory, and that memory is only released when the
+distribution stops.
 
-# Preview a start without touching the worker.
-python3 ~/projects/tools/llm-tether start --model <model-key> --dry-run
+## Run your own copy
 
-# Show running instances, and optionally each one's OpenCode subagents and VRAM.
+You need:
+
+- Python 3.14 or newer. The tool uses only the standard library.
+- SSH access from the VPS to a Windows PC with a WSL2 distribution.
+- A llama.cpp build on the PC at `~/.local/src/llama.cpp-<revision>/build/bin/llama-server`, one
+  directory per revision.
+- The model files (GGUF) on the PC.
+- An AMD GPU. The tool sets `HSA_ENABLE_DXG_DETECTION=1` when it starts `llama-server`.
+- OpenCode on the VPS.
+
+Steps:
+
+1. Copy the tool directory to the VPS, for example to `~/projects/tools/llm-tether/`.
+2. Create the config and fill in the connection and at least one model. The example explains each
+   field.
+
+   ```bash
+   cp config.toml.example config.toml
+   $EDITOR config.toml
+   ```
+
+3. Start a model. Leave out `--model` to pick from a menu instead.
+
+   ```bash
+   python3 ~/projects/tools/llm-tether start --model <model-key>
+   ```
+
+4. Reload OpenCode so it sees the new provider.
+
+   ```bash
+   opencode reload
+   ```
+
+Other commands:
+
+```bash
 python3 ~/projects/tools/llm-tether status
-python3 ~/projects/tools/llm-tether status --json
-python3 ~/projects/tools/llm-tether status --vram
-
-# Inspect the remote llama-server log and the local keeper log for one instance.
-python3 ~/projects/tools/llm-tether logs --model <model-key> --instance 1 --lines 200
-
-# Stamp a subagent (or every configured template) for a running provider.
+python3 ~/projects/tools/llm-tether logs --model <model-key> --instance 1
 python3 ~/projects/tools/llm-tether create-subagent --provider local-<model-key> --template <name>
-python3 ~/projects/tools/llm-tether create-subagent --provider local-<model-key> --all --dry-run
-python3 ~/projects/tools/llm-tether subagents
-python3 ~/projects/tools/llm-tether remove-subagent --provider local-<model-key> --template <name>
-python3 ~/projects/tools/llm-tether remove-subagent --provider local-<model-key> --file <name>.md
-
-# Recover from drift; these default to a dry run.
 python3 ~/projects/tools/llm-tether doctor
-python3 ~/projects/tools/llm-tether reconcile
-python3 ~/projects/tools/llm-tether reconcile --execute
-python3 ~/projects/tools/llm-tether prune-subagents --execute
-python3 ~/projects/tools/llm-tether clean
-python3 ~/projects/tools/llm-tether clean --execute
-
-# Restart an instance in place; it gets a new index and provider id.
-python3 ~/projects/tools/llm-tether restart --provider local-<model-key>
-
-# Stop one by provider, by model, or all instances.
-python3 ~/projects/tools/llm-tether stop --provider local-<model-key>
-python3 ~/projects/tools/llm-tether stop --model <model-key> --instance 1
 python3 ~/projects/tools/llm-tether stop --all
 ```
 
-Run `python3 ~/projects/tools/llm-tether --help` for the full flag list, the module docstrings in
-`cli.py`, `lifecycle.py`, and `reconcile.py` describe the actions in more detail.
+Run the tool with `--help` for every command and flag. `python3 tests/run.py` runs the tests, which
+use a temporary directory and never touch a real config.
 
-Key behaviors:
+## Limits
 
-- A `start` launches the model detached, forwards its port through a detached SSH keeper, and
-  returns immediately. The tool is not a long-running process.
-- Several instances, including several copies of the same model, can run at once. Each has its
-  own port, keeper, provider entry, and stamped subagents.
-- `stop` removes that instance's provider entry and stamped subagents. Only when the last instance
-  stops does it terminate the WSL distribution, releasing the multi-GB model page cache the VM
-  would otherwise keep resident.
-- `reconcile` re-adds providers for running instances that lost their entry, drops dead state
-  entries, prunes orphan stamps, and re-stamps recorded agent files that went missing.
-- `clean` removes local keeper logs and remote logs/pidfiles for instances that have no state
-  entry.
-- `reconcile`, `prune-subagents`, and `clean` only report by default. Pass `--execute` to apply.
-- `doctor` prints the resolved paths and warns about stale keeper logs. It never writes.
+- This is a personal experiment tool and is not polished. I maintain it only now and then, so
+  expect rough edges and slow fixes.
+- OpenCode reads its config only on `opencode reload` or `/reload`, so run it after `start`, `stop`
+  and `create-subagent`.
+- `logs` prints the end of a log once and cannot follow it.
+- `restart` gives the model a new provider id, so update anything that used the old one.
+- The tool only manages OpenCode providers whose id starts with `local-`.
 
-## Live reload
+## License
 
-This targets OpenCode v2: provider entries are written in the native v2 schema under
-`providers` in `opencode.json`. The v2 service rereads that file only on `opencode reload` (or
-`/reload` in the TUI), so run `opencode reload` after `start`, `stop`, or `create-subagent`. If a
-live-reload plugin is registered, changes appear automatically instead; `doctor` reports whether one
-is registered.
-
-## State and logs
-
-- Private state: `$XDG_STATE_HOME/llm-tether/state.json` (default
-  `~/.local/state/llm-tether/state.json`). It records the running instances and the subagent
-  files each one owns. This is the source of truth for `stop`, `status`, and `reconcile`.
-- Local keeper logs: the same directory, `<model-key>-<instance>.keeper.log`.
-- Remote logs: `~/.local/state/llm-tether/<model-key>-<instance>.log` on the worker.
-
-## Troubleshooting
-
-- `python3 ~/projects/tools/llm-tether doctor` cross-checks the config, templates, OpenCode config,
-  agents directory, recorded state, health endpoints, and the registered reload plugin. Add `--json`
-  for scripting.
-- A failed `start` leaves no session. Use `logs --model <key> --instance <n>` to read the remote
-  `llama-server` log; it addresses the file directly, so no state entry is needed.
-- `reconcile` re-adds providers for running instances that lost their config entry, removes
-  `local-*` providers with no owner, drops dead state entries, prunes orphan stamps, and
-  re-stamps recorded agent files that are missing. `clean` removes stale logs for gone instances.
-
-## Tests
-
-The test suite is stdlib `unittest` and builds every case in a throwaway workspace, so it never
-touches a real config, state file, OpenCode config, or agents directory:
-
-```sh
-python3 tests/run.py
-```
-
-## Limitations and portability
-
-- `logs` is a one-shot `tail` over SSH. It cannot follow a running log.
-- `status --vram` shells out to the worker (one probe per runtime revision); it is opt-in.
-- `restart` produces a new provider id because the instance index advances. Update anything that
-  referenced the old id.
-- The tool owns only OpenCode providers whose id starts with `local-`; it never touches others.
-- The tool requires Python 3.14+; the code is formatted with the repository's `ruff` settings.
+This project is released under the [MIT License](/LICENSE).
